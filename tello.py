@@ -1,15 +1,35 @@
 #!/usr/bin/env python3
 """
-Sends commands to the Tello
+Handles Tello commands and displays video stream and state.
 """
 
 import socket
+import socketserver
 import multiprocessing
 import cv2
 
 HOST = "192.168.10.1"
 PORT = 8889
 VIDEO_PORT = 11111
+STATE_HOST = "0.0.0.0"
+STATE_PORT = 8890
+
+class TelloStateHandler(socketserver.BaseRequestHandler):
+    """
+    Creates a local UDP server that receives state information from the 
+    Tello.
+    Based on: https://docs.python.org/3/library/socketserver.html#socketserver-udpserver-example
+    """
+
+    def handle(self):
+        #TODO: This should be stored in a variable instead of output
+        data = self.request[0]
+        print(f"{self.client_address} wrote: {data}")
+
+class ForkingUDPServer(socketserver.ForkingMixIn, socketserver.UDPServer):
+    """
+    Forking server for handling state asynchronously
+    """
 
 def read_response(sock):
     """
@@ -49,13 +69,13 @@ def main():
     response_process.start()
 
     command = ""
+    stream_process = 0
+    state_process = 0
     sock.sendto("command".encode(encoding="utf-8"), (HOST, PORT))
-    print("Tello control activated. Awaiting your command")
+    print("Tello control activated. Awaiting command...")
     while True:
         try:
             command = input("")
-            sock.sendto(command.encode(encoding="utf-8"), (HOST, PORT))
-            print(f"Sent: {command}")
             if command == "land":
                 break
             if command == "streamon":
@@ -63,14 +83,26 @@ def main():
                 stream_process.start()
             if command == "streamoff":
                 stream_process.terminate()
+            if command == "stateon":
+                server = ForkingUDPServer((STATE_HOST, STATE_PORT), TelloStateHandler)
+                with server:
+                    state_process = multiprocessing.Process(server.serve_forever())
+                    state_process.start()
+            if command == "stateoff":
+                state_process.terminate()
+
+            sock.sendto(command.encode(encoding="utf-8"), (HOST, PORT))
+            print(f"Sent: {command}")
 
         except KeyboardInterrupt:
             sock.close()
             print("Landing...")
             command = "land"
     response_process.terminate()
-    stream_process.terminate()
-    print("Autonomous landing sequence engaged, Goodbye.")
-
+    if stream_process:
+        stream_process.terminate()
+    if state_process:
+        state_process.terminate()
+    print("Autonomous landing sequence engaged...\nGoodbye.")
 
 main()
