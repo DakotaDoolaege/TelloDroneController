@@ -3,42 +3,47 @@ Sends commands to the Tello
 """
 
 import socket
-import threading
+import multiprocessing
 
 HOST = "192.168.10.1"
 PORT = 8889
 
-flying = True
-
-sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-sock.bind(('', 9000))
-
-def read_response():
+def read_response(sock):
     """
     Handles command responses from the Tello drone.
     """
-    while flying:
+    while True:
         data, sender = sock.recvfrom(1024)
         data = data.decode(encoding="utf-8")
         print(f"Response: {data}")
 
-response_thread = threading.Thread(target=read_response)
-response_thread.start()
+def main():
+    """
+    Main entry point for Tello Drone Autopilot
+    """
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind(('', 9000))
 
-command = ""
-sock.sendto("command".encode(encoding="utf-8"), (HOST, PORT))
-while True:
-    try:
-        command = input("")
-        sock.sendto(command.encode(encoding="utf-8"), (HOST, PORT))
-        print(f"Sent: {command}")
-        if command == "land":
-            break
-    except KeyboardInterrupt:
-        sock.close()
-        print("Landing...")
-        command = "land"
-flying = False
-response_thread.join()
-print("Thanks for flying TelloAir, Goodbye.")
+    response_process = multiprocessing.Process(target=read_response,
+                                               args=(sock,))
+    response_process.start()
+
+    command = ""
+    sock.sendto("command".encode(encoding="utf-8"), (HOST, PORT))
+    while True:
+        try:
+            command = input("")
+            sock.sendto(command.encode(encoding="utf-8"), (HOST, PORT))
+            print(f"Sent: {command}")
+            if command == "land":
+                break
+        except KeyboardInterrupt:
+            sock.close()
+            print("Landing...")
+            command = "land"
+    response_process.terminate()
+    print("Thanks for flying TelloAir, Goodbye.")
+
+
+main()
 
